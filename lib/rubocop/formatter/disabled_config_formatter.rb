@@ -65,6 +65,9 @@ module RuboCop
         if @exclude_limit_option
           command += format(' --exclude-limit %d', @exclude_limit_option.to_i)
         end
+        if !@show_offense_counts
+          command += ' --no-offense-count'
+        end
 
         command
       end
