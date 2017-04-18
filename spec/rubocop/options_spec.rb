@@ -45,6 +45,14 @@ describe RuboCop::Options, :isolated_environment do
                   --exclude-limit COUNT        Used together with --auto-gen-config to
                                                set the limit for how many Exclude
                                                properties to generate. Default is 15.
+              -a, --auto-correct               Auto-correct offenses when possible.
+                  --disable-uncorrectable      Used with --auto-correct to annotate any
+                                               offenses that do not support autocorrect
+                                               with `rubocop:disable` comments.
+                  --disable-all                Like --disable-uncorrectable, except
+                                               all offenses are annotated with
+                                               `rubocop:disable` comments. No cop-
+                                               specific corrections are made.
                   --force-exclusion            Force excluding files specified in the
                                                configuration `Exclude` even if they are
                                                explicitly passed as arguments.
@@ -89,7 +97,6 @@ describe RuboCop::Options, :isolated_environment do
               -S, --display-style-guide        Display style guide URLs in offense messages.
               -R, --rails                      Run extra Rails cops.
               -l, --lint                       Run only lint cops.
-              -a, --auto-correct               Auto-correct offenses.
                   --[no-]color                 Force color output on or off.
               -v, --version                    Display version.
               -V, --verbose-version            Display verbose version.

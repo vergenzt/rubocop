@@ -112,7 +112,8 @@ module RuboCop
         message ||= message(node)
         message = annotate(message)
 
-        status = enabled_line?(location.line) ? correct(node) : :disabled
+        enabled = enabled_line?(location.line)
+        status = enabled ? correct(node, location) : :disabled
 
         @offenses << Offense.new(severity, location, message, name, status)
         yield if block_given? && status != :disabled
@@ -125,16 +126,6 @@ module RuboCop
 
       def duplicate_location?(location)
         @offenses.any? { |o| o.location == location }
-      end
-
-      def correct(node)
-        return :unsupported unless support_autocorrect?
-        return :uncorrected unless autocorrect?
-
-        correction = autocorrect(node)
-        return :uncorrected unless correction
-        @corrections << correction
-        :corrected
       end
 
       def config_to_allow_offenses
