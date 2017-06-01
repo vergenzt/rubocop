@@ -148,11 +148,12 @@ module RuboCop
             .detect { |e| e.location.line == source_line_number }
 
           return false unless comment
-          comment.text.match(CommentConfig::COMMENT_DIRECTIVE_REGEXP)
+          CommentDirective.from_comment(comment)
         end
 
         def line_length_without_directive(line)
-          before_comment, = line.split(CommentConfig::COMMENT_DIRECTIVE_REGEXP)
+          regex = CommentDirective::COMMENT_DIRECTIVE_REGEXP
+          before_comment, = line.split(regex)
           before_comment.rstrip.length
         end
 
