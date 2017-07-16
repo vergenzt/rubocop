@@ -148,7 +148,7 @@ module RuboCop
             .detect { |e| e.location.line == source_line_number }
 
           return false unless comment
-          CommentDirective.from_comment(comment)
+          CommentDirective.exists_in?(comment)
         end
 
         def line_length_without_directive(line)

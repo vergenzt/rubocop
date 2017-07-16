@@ -4,32 +4,44 @@ describe RuboCop::CommentDirective do
   let(:comment) { parse_source(source).comments.first }
   let(:source) { '' } # overridden in lower contexts
 
-  describe '.from_comment' do
+  let(:all_cops) do
+    array_larger_than(200)
+  end
+
+  describe '.each_from_comment' do
     subject do
-      # reverse the array so we pop from the front
-      described_class.from_comment(comment)
+      directives = []
+      described_class.each_from_comment(comment) do |directive|
+        directives << directive
+      end
+      directives
     end
 
     def expect_directive(keyword, cop_names = nil, source = nil)
-      expect(subject.keyword).to eq(keyword)
-      expect(subject.cop_names).to match_array(cop_names) if cop_names.is_a? Array
-      expect(subject.all_cops?).to be(true) if cop_names == :all_cops
-      expect(subject.source_range.source).to eq(source) if source
+      directive = subject.pop
+      expect(directive.keyword).to eq(keyword)
+      expect(directive.cop_names).to match_array(cop_names) if cop_names
+      expect(directive.source_range.source).to eq(source) if source
+    end
+
+    # Make sure we set up expectations for all directives in the source.
+    after do
+      expect(subject).to be_empty
     end
 
     context 'when comment is nil' do
       let(:comment) { nil }
-      it { is_expected.to be_nil }
+      it { is_expected.to be_empty }
     end
 
     context 'when comment has no directive' do
       let(:source) { '# no directive to see here' }
-      it { is_expected.to be_nil }
+      it { is_expected.to be_empty }
     end
 
     context 'when comment has an invalid directive keyword' do
       let(:source) { '# rubocop:blahblahblah Test/SomeCop' }
-      it { is_expected.to be_nil }
+      it { is_expected.to be_empty }
     end
 
     context 'when a comment has a disable directive' do
@@ -69,7 +81,7 @@ describe RuboCop::CommentDirective do
       context 'with disable all' do
         let(:source) { '# rubocop:disable all' }
         it 'has a directive' do
-          expect_directive(:disable, :all_cops, source)
+          expect_directive(:disable, all_cops, source)
         end
       end
     end
@@ -88,9 +100,11 @@ describe RuboCop::CommentDirective do
         let(:source) do
           '# rubocop:disable Test/SomeCop # rubocop:todo Test/OtherCop'
         end
-        it 'has a disable directive' do
+        it 'has directives' do
           expect_directive(:disable, ['Test/SomeCop'],
                            '# rubocop:disable Test/SomeCop')
+          expect_directive(:todo, ['Test/OtherCop'],
+                           '# rubocop:todo Test/OtherCop')
         end
       end
 
@@ -98,7 +112,7 @@ describe RuboCop::CommentDirective do
         let(:source) do
           '# rubocop:disable Test/SomeCop # rubocop:disable Test/OtherCop'
         end
-        it 'has a disable directive' do
+        it 'has one directive' do
           expect_directive(:disable, ['Test/SomeCop'],
                            '# rubocop:disable Test/SomeCop')
         end
@@ -108,9 +122,21 @@ describe RuboCop::CommentDirective do
         let(:source) do
           '# rubocop:disable Test/SomeCop # rubocop:enable Test/OtherCop'
         end
-        it 'has a disable directive' do
+        it 'has one directive' do
           expect_directive(:disable, ['Test/SomeCop'],
                            '# rubocop:disable Test/SomeCop')
+        end
+      end
+
+      context 'todo followed by disable' do
+        let(:source) do
+          '# rubocop:todo Test/SomeCop # rubocop:disable Test/OtherCop'
+        end
+        it 'has directives' do
+          expect_directive(:todo, ['Test/SomeCop'],
+                           '# rubocop:disable Test/SomeCop')
+          expect_directive(:disable, ['Test/SomeCop'],
+                           '# rubocop:disable Test/OtherCop')
         end
       end
     end

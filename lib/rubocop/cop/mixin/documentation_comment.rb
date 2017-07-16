@@ -39,7 +39,7 @@ module RuboCop
       end
 
       def rubocop_directive_comment?(comment)
-        CommentDirective.from_comment(comment)
+        CommentDirective.exists_in?(comment)
       end
     end
   end

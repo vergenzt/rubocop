@@ -22,9 +22,17 @@ module RuboCop
     end
 
     def directives
-      @directives ||= (processed_source.comments || []).map do |comment|
-        CommentDirective.from_comment(comment)
-      end.compact
+      @directives ||= (processed_source.comments || []).flat_map do |comment|
+        CommentDirective.each_from_comment(comment)
+      end
+    end
+
+    def directives_with_redundant_cops
+      @redundant_directive_cops.keys
+    end
+
+    def redundant_cops_for(directive)
+      @redundant_directive_cops[directive]
     end
 
     private
@@ -35,6 +43,8 @@ module RuboCop
 
       # cop_name => disable_directive
       @cops_currently_disabled = Hash.new
+
+      @redundant_directive_cops = Hash.new {
 
       directives.each do |directive|
         case [directive_scope(directive), directive.keyword]

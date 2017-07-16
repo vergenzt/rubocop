@@ -273,6 +273,31 @@ describe RuboCop::Cop::Lint::UnneededDisable do
               expect(cop.highlights).to eq([source])
             end
           end
+
+          context 'all cops, twice' do
+            let(:source) do
+              ['# rubocop:disable all',
+               'puts 1',
+               '# rubocop:disable all',
+               'puts 2'].join("\n")
+            end
+            let(:cop_disabled_line_ranges) do
+              {
+                'Metrics/MethodLength' => [1..3, 3..Float::INFINITY],
+                'Metrics/ClassLength' => [1..3, 3..Float::INFINITY],
+                'Lint/UnneededDisable' => [1..3, 3..Float::INFINITY]
+                # etc... (no need to include all cops here)
+              }
+            end
+
+            it 'returns two offenses' do
+              expect(cop.offenses.count).to eq(2)
+              expect(cop.offenses.map(&:location).map(&:line)).to eq([1, 3])
+              expect(cop.messages)
+                .to eq(['Unnecessary disabling of all cops.',
+                        'Unnecessary disabling of all cops.'])
+            end
+          end
         end
       end
 
@@ -336,6 +361,30 @@ describe RuboCop::Cop::Lint::UnneededDisable do
                 .to eq(['# rubocop:disable Style/ClassVars'])
             end
           end
+
+          context 'all cops, twice' do
+            let(:source) do
+              ['# rubocop:disable all',
+               'puts 1',
+               '# rubocop:disable all',
+               'puts 2'].join("\n")
+            end
+            let(:offense_lines) { [2, 4] }
+            let(:cop_disabled_line_ranges) do
+              {
+                'Style/ClassVars' => [1..3, 3..Float::INFINITY],
+                'Lint/UnneededDisable' => [1..3, 3..Float::INFINITY]
+                # etc... (no need to include all cops here)
+              }
+            end
+
+            it 'returns one offense' do
+              expect(cop.offenses.count).to eq(1)
+              expect(cop.offenses.map(&:location).map(&:line)).to eq([3])
+              expect(cop.messages)
+                .to eq(['Unnecessary disabling of all cops.'])
+            end
+          end
         end
       end
 
@@ -382,6 +431,30 @@ describe RuboCop::Cop::Lint::UnneededDisable do
 
             it 'returns an empty array' do
               expect(cop.offenses).to be_empty
+            end
+          end
+
+          context 'all cops, twice' do
+            let(:source) do
+              ['# rubocop:disable all',
+               'puts 1',
+               '# rubocop:disable all',
+               'puts 2'].join("\n")
+            end
+            let(:cop_disabled_line_ranges) do
+              {
+                'Metrics/MethodLength' => [1..3, 3..Float::INFINITY],
+                'Metrics/ClassLength' => [1..3, 3..Float::INFINITY],
+                'Lint/UnneededDisable' => [1..3, 3..Float::INFINITY]
+                # etc... (no need to include all cops here)
+              }
+            end
+
+            it 'returns one offense' do
+              expect(cop.offenses.count).to eq(1)
+              expect(cop.offenses.map(&:location).map(&:line)).to eq([3])
+              expect(cop.messages)
+                .to eq(['Unnecessary disabling of all cops.'])
             end
           end
         end

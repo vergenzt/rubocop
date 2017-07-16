@@ -54,7 +54,43 @@ describe RuboCop::CommentConfig do
         '[1, 2, 3, 4].map { |e| [e, e] }.flatten(1)',
         '# rubocop:enable FlatMap',
         '# rubocop:disable RSpec/Example',
-        '# rubocop:disable Custom2/Number9'                  # 48
+        '# rubocop:disable Custom2/Number9',                 # 48
+        '',
+        '# rubocop:todo Style/TestTodo',                     # 50
+        'def is_example',
+        '  puts "Yep."',
+        'end',
+        '# rubocop:end_todo Style/TestTodo',                 # 54
+        '',
+        'asdf # rubocop:todo Style/TestTodoSingleLine',      # 56
+        '',
+        '# rubocop:disable Style/TestTodo2',                 # 58
+        'def is_another_example',
+        '  # rubocop:end_todo Style/TestTodo2',
+        '  puts "Also yep."',
+        'end',
+        '# rubocop:enable Style/TestTodo2',                  # 63
+        '',
+        '# rubocop:disable Style/TestTodo3',                 # 65
+        '# rubocop:todo Style/TestTodo3',
+        'def is_another_example',
+        '  # rubocop:enable Style/TestTodo3',
+        '  puts "Also yep."',
+        'end',
+        '# rubocop:end_todo Style/TestTodo3',                # 71
+        '',
+        "puts 'multiple disables'" \
+        ' # rubocop:disable Test/Thing1,Test/Thing2 with comment' \
+        ' # rubocop:disable Test/Thing3, Test/Thing4 another comment', # 73
+        '',
+        "puts 'disable then enable' # rubocop:disable Test/Cop" \
+        ' # rubocop:enable Test/Cop',                        # 75
+        '',
+        "puts 'enable then disable' # rubocop:enable Test/Cop" \
+        ' # rubocop:disable Test/Cop',                       # 77
+        '',
+        "puts 'disable then todo' # rubocop:disable Test/Cop1" \
+        ' # rubocop:todo Test/Cop2'                          # 79
       ]
     end
 
@@ -160,6 +196,39 @@ describe RuboCop::CommentConfig do
 
     it 'supports disabling cops with numbers in their name' do
       expect(disabled_lines_of_cop('Custom2/Number9')).to include(48)
+    end
+
+    it 'supports using rubocop:todo on a section' do
+      expect(disabled_lines_of_cop('Style/TestTodo')).to eq((50..54).to_a)
+    end
+
+    it 'supports using single line rubocop:todo' do
+      expect(disabled_lines_of_cop('Style/TestTodoSingleLine')).to eq([56])
+    end
+
+    it 'supports using rubocop:todo independently of rubocop:disable' do
+      expect(disabled_lines_of_cop('Style/TestTodo2')).to eq((58..63).to_a)
+      expect(disabled_lines_of_cop('Style/TestTodo3')).to eq((65..71).to_a)
+    end
+
+    it 'ignores multiple disable statements in a single line' do
+      expect(disabled_lines_of_cop('Test/Thing1')).to include(73)
+      expect(disabled_lines_of_cop('Test/Thing2')).to include(73)
+      expect(disabled_lines_of_cop('Test/Thing3')).not_to include(73)
+      expect(disabled_lines_of_cop('Test/Thing4')).not_to include(73)
+    end
+
+    it 'ignores enable directive after disable on same line' do
+      expect(disabled_lines_of_cop('Test/Cop')).to include(75)
+    end
+
+    it 'ignores disable directive after enable on same line' do
+      expect(disabled_lines_of_cop('Test/Cop')).not_to include(77)
+    end
+
+    it 'supports disable and todo on same line' do
+      expect(disabled_lines_of_cop('Test/Cop1')).to include(79)
+      expect(disabled_lines_of_cop('Test/Cop2')).to include(79)
     end
   end
 end

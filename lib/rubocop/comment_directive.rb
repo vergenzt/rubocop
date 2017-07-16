@@ -1,12 +1,14 @@
 # frozen_string_literal: true
 
+require 'set'
+
 module RuboCop
   # This class represents a single a `rubocop:*` comment directive.
   class CommentDirective
     UNNEEDED_DISABLE = 'Lint/UnneededDisable'.freeze
 
     # The available keywords to come after `# rubocop:`.
-    KEYWORDS = %i[disable enable].freeze
+    KEYWORDS = %i[disable enable todo end_todo].freeze
 
     KEYWORD_PATTERN = "(?<keyword>#{KEYWORDS.join('|')})\\b".freeze
     COP_NAME_PATTERN = '([A-Z]\w+/)?(?:[A-Z]\w+)'.freeze
@@ -17,11 +19,32 @@ module RuboCop
       "# rubocop : #{KEYWORD_PATTERN} #{COPS_PATTERN}".gsub(' ', '\s*')
     )
 
-    # Initializes a new CommentDirective if the provided Parser::Source::Comment
-    # contains a directive. Returns nil if it does not.
-    def self.from_comment(comment)
-      return unless comment && comment.text =~ COMMENT_DIRECTIVE_REGEXP
-      new(comment, Regexp.last_match)
+    # Yields a new CommentDirective for each rubocop directive in the given
+    # Parser::Source::Comment, or returns an Enumerator if no block is given.
+    def self.each_from_comment(comment)
+      return enum_for(:each_from_comment) unless block_given?
+      return unless comment
+
+      open_keywords_seen = Set.new
+      comment.text.scan(COMMENT_DIRECTIVE_REGEXP) do
+        directive = new(comment, Regexp.last_match)
+
+        # Allow only one of each type of directive per line.
+        #
+        # I.e. you can't have multiple rubocop:disables or a rubocop:disable
+        # followed by a rubocop:enable on one line, but you *can* have
+        # rubocop:disable followed by rubocop:todo on the same line.
+        next if open_keywords_seen.include?(directive.open_keyword)
+
+        open_keywords_seen << directive.open_keyword
+        yield directive
+      end
+      nil
+    end
+
+    def self.exists_in?(comment)
+      each_from_comment(comment) { return true }
+      false
     end
 
     def initialize(comment, match)
@@ -41,6 +64,20 @@ module RuboCop
 
     def line
       source_range.line
+    end
+
+    def type
+      case keyword
+      when :disable, :todo then :open
+      when :enable, :end_todo then :close
+      end
+    end
+
+    def open_keyword
+      case keyword
+      when :disable, :enable then :disable
+      when :todo, :end_todo then :todo
+      end
     end
 
     private

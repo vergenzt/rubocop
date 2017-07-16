@@ -12,9 +12,6 @@ module RuboCop
       # their work. Instead, it waits until it's called in a later stage of the
       # execution. The reason it can't be implemented as a normal cop is that
       # it depends on the results of all other cops to do its work.
-      #
-      # Note: Many aspects of this file should be refactored to consolidate
-      # logic into `CommentDirective`.
       class UnneededDisable < Cop
         include NameSimilarity
 
@@ -150,6 +147,7 @@ module RuboCop
         end
 
         def directive_count(comment)
+
           match = comment.text.match(CommentDirective::COMMENT_DIRECTIVE_REGEXP)
           match[:cops_string].split(/,\s*/).size
         end
