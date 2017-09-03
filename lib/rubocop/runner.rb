@@ -131,7 +131,7 @@ module RuboCop
         if config.for_cop(Cop::Lint::UnneededDisable).fetch('Enabled')
           cop = Cop::Lint::UnneededDisable.new(config, @options)
           if cop.relevant_file?(file)
-            cop.check(offenses, source.disabled_line_ranges, source.comments)
+            cop.check(offenses, source.comment_config)
             offenses += cop.offenses
             autocorrect_unneeded_disables(source, cop)
           end

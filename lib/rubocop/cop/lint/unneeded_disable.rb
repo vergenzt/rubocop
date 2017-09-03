@@ -20,43 +20,124 @@ module RuboCop
 
         COP_NAME = 'Lint/UnneededDisable'.freeze
 
-        def check(offenses, cop_disabled_line_ranges, comments)
-          unneeded_cops = Hash.new { |h, k| h[k] = Set.new }
+        def check(all_offenses, comment_config)
+          offended_directive_cops = offended_directive_cops(all_offenses,
+                                                            comment_config)
 
-          each_unneeded_disable(cop_disabled_line_ranges,
-                                offenses, comments) do |comment, unneeded_cop|
-            unneeded_cops[comment].add(unneeded_cop)
+          relevant_directives = comment_config.directives.select do |directive|
+            directive.keyword == :disable && enabled_line?(directive.line)
           end
 
-          add_offenses(unneeded_cops)
+          unoffended_directive_cops = relevant_directives.map do |directive|
+            offended_cops = offended_directive_cops[directive]
+            [directive, directive.cop_names - [COP_NAME] - offended_cops]
+          end.to_h
+
+          add_offenses(unoffended_directive_cops)
         end
 
         def autocorrect(args)
           lambda do |corrector|
-            ranges, range = *args # Ranges are sorted by position.
+            directive, unoffended_cop_names, this_cop_name = *args
 
-            range = if range.source.start_with?('#')
-                      comment_range_with_surrounding_space(range)
-                    else
-                      directive_range_in_list(range, ranges)
-                    end
-
-            corrector.remove(range)
+            corrector.remove(
+              if unoffended_cop_names.size == directive.cop_names.size
+                directive_range_with_surrounding_space(directive)
+              else
+                cop_range = directive.cop_range(this_cop_name)
+                cop_ranges = unoffended_cop_names.map do |cop_name|
+                  directive.cop_range(cop_name)
+                end
+                directive_range_in_list(cop_range, cop_ranges)
+              end
+            )
           end
         end
 
         private
 
-        def comment_range_with_surrounding_space(range)
+        def offended_directive_cops(all_offenses, comment_config)
+          offended_directive_cops = Hash.new { |h, k| h[k] = [] }
+
+          all_offenses.group_by(&:cop_name).each do |cop_name, offenses|
+            disabled_ranges = comment_config.cop_disabled_line_ranges[cop_name]
+            offenses.each do |offense|
+              directive = assigned_directive(offense, disabled_ranges)
+              offended_directive_cops[directive] <<= cop_name if directive
+            end
+          end
+
+          offended_directive_cops
+        end
+
+        # Returns a directive to assign this offense to if the offense is
+        # covered by a disabled range.
+        def assigned_directive(offense, disabled_ranges)
+          covering_ranges = disabled_ranges.select do |range|
+            range.cover? offense.line
+          end
+          preferred_directive_from(covering_ranges.map(&:begin_directive))
+        end
+
+        def preferred_directive_from(covering_directives)
+          covering_directives.min_by do |directive|
+            [
+              # first prefer "all" directives
+              directive.all_cops ? 0 : 1,
+              # then prefer directives declared first
+              directive.line
+            ]
+          end
+        end
+
+        def add_offenses(unoffended_directive_cops)
+          unoffended_directive_cops
+            .sort_by { |directive, _cops| directive.source_range.begin_pos }
+            .each do |directive, cops|
+              if cops.size == directive.cop_names.size
+                add_offense_for_entire_comment(directive, cops)
+              elsif !cops.empty? && cops.size < directive.cop_names.size
+                if directive.all_cops?
+                  # Ignore. If a directive disables all cops and not all
+                  # disables were unneeded, then leave it be. The directive
+                  # isn't unneeded.
+                else
+                  add_offense_for_some_cops(directive, cops)
+                end
+              end
+            end
+        end
+
+        def add_offense_for_entire_comment(directive, cop_names)
+          description = if directive.all_cops?
+                          'all cops'
+                        else
+                          cop_names.sort.map { |c| describe(c) }.join(', ')
+                        end
+
+          add_offense([directive, cop_names], directive.source_range,
+                      "Unnecessary disabling of #{description}.")
+        end
+
+        def add_offense_for_some_cops(directive, cop_names)
+          cop_names.each do |cop|
+            add_offense([directive, cop_names, cop], directive.cop_range(cop),
+                        "Unnecessary disabling of #{describe(cop)}.")
+          end
+        end
+
+        def directive_range_with_surrounding_space(directive)
           # Eat the entire comment, the preceding space, and the preceding
           # newline if there is one.
+          range = directive.source_range
           original_begin = range.begin_pos
           range = range_with_surrounding_space(range, :left, true)
-          range_with_surrounding_space(range, :right,
-                                       # Special for a comment that
-                                       # begins the file: remove
-                                       # the newline at the end.
-                                       original_begin.zero?)
+          range = range_with_surrounding_space(range, :right,
+                                               # Special for a comment that
+                                               # begins the file: remove
+                                               # the newline at the end.
+                                               original_begin.zero?)
+          range
         end
 
         def directive_range_in_list(range, ranges)
@@ -73,128 +154,21 @@ module RuboCop
           range_with_surrounding_space(range, :right, false)
         end
 
-        def each_unneeded_disable(cop_disabled_line_ranges, offenses, comments,
-                                  &block)
-          disabled_ranges = cop_disabled_line_ranges[COP_NAME] || [0..0]
+        def cop_range_in_list(directive, cop_name)
+          # Assumption: directive includes more than one cop. If it didn't, then
+          # we'd be removing the entire directive, not just this cop.
 
-          cop_disabled_line_ranges.each do |cop, line_ranges|
-            each_already_disabled(line_ranges, comments) do |comment|
-              yield comment, cop
-            end
-
-            each_line_range(line_ranges, disabled_ranges, offenses, comments,
-                            cop, &block)
-          end
-        end
-
-        def each_line_range(line_ranges, disabled_ranges, offenses, comments,
-                            cop)
-          line_ranges.each_with_index do |line_range, ix|
-            comment = comments.find { |c| c.loc.line == line_range.begin }
-
-            unless all_disabled?(comment)
-              next if ignore_offense?(disabled_ranges, line_range)
-            end
-
-            unneeded_cop = find_unneeded(comment, offenses, cop, line_range,
-                                         line_ranges[ix + 1])
-            yield comment, unneeded_cop if unneeded_cop
-          end
-        end
-
-        def each_already_disabled(line_ranges, comments)
-          line_ranges.each_cons(2) do |previous_range, range|
-            next if previous_range.end != range.begin
-
-            # If a cop is disabled in a range that begins on the same line as
-            # the end of the previous range, it means that the cop was
-            # already disabled by an earlier comment. So it's unneeded
-            # whether there are offenses or not.
-            unneeded_comment = comments.find do |c|
-              c.loc.line == range.begin &&
-                # Comments disabling all cops don't count since it's reasonable
-                # to disable a few select cops first and then all cops further
-                # down in the code.
-                !all_disabled?(c)
-            end
-            yield unneeded_comment if unneeded_comment
-          end
-        end
-
-        def find_unneeded(comment, offenses, cop, line_range, next_line_range)
-          if all_disabled?(comment)
-            # If there's a disable all comment followed by a comment
-            # specifically disabling `cop`, we don't report the `all`
-            # comment. If the disable all comment is truly unneeded, we will
-            # detect that when examining the comments of another cop, and we
-            # get the full line range for the disable all.
-            if (next_line_range.nil? ||
-                line_range.last != next_line_range.first) &&
-               offenses.none? { |o| line_range.cover?(o.line) }
-              'all'
-            end
+          range = directive.cop_range(cop_name)
+          if cop_name == directive.cop_names.first
+            # If at beginning of list, eat the comma on the right.
+            range = range_with_surrounding_space(range, :right)
+            range = range_with_surrounding_comma(range, :right)
           else
-            cop_offenses = offenses.select { |o| o.cop_name == cop }
-            cop if cop_offenses.none? { |o| line_range.cover?(o.line) }
+            # Otherwise, eat the comma on the left.
+            range = range_with_surrounding_comma(range, :left)
+            range = range_with_surrounding_space(range, :left)
           end
-        end
-
-        def all_disabled?(comment)
-          comment.text =~ /rubocop\s*:\s*disable\s+all\b/
-        end
-
-        def ignore_offense?(disabled_ranges, line_range)
-          disabled_ranges.any? do |range|
-            range.cover?(line_range.min) && range.cover?(line_range.max)
-          end
-        end
-
-        def directive_count(comment)
-          match = comment.text.match(CommentDirective::COMMENT_DIRECTIVE_REGEXP)
-          match[:cops_string].split(/,\s*/).size
-        end
-
-        def add_offenses(unneeded_cops)
-          unneeded_cops.each do |comment, cops|
-            if all_disabled?(comment) ||
-               directive_count(comment) == cops.size
-              add_offense_for_entire_comment(comment, cops)
-            else
-              add_offense_for_some_cops(comment, cops)
-            end
-          end
-        end
-
-        def add_offense_for_entire_comment(comment, cops)
-          location = comment.loc.expression
-          cop_list = cops.sort.map { |c| describe(c) }
-          add_offense([[location], location], location,
-                      "Unnecessary disabling of #{cop_list.join(', ')}.")
-        end
-
-        def add_offense_for_some_cops(comment, cops)
-          cop_ranges = cops.map { |c| [c, cop_range(comment, c)] }
-          cop_ranges.sort_by! { |_, r| r.begin_pos }
-          ranges = cop_ranges.map { |_, r| r }
-
-          cop_ranges.each do |cop, range|
-            add_offense([ranges, range], range,
-                        "Unnecessary disabling of #{describe(cop)}.")
-          end
-        end
-
-        def cop_range(comment, cop)
-          matching_range(comment.loc.expression, cop) ||
-            matching_range(comment.loc.expression, Badge.parse(cop).cop_name) ||
-            raise("Couldn't find #{cop} in comment: #{comment.text}")
-        end
-
-        def matching_range(haystack, needle)
-          offset = (haystack.source =~ Regexp.new(Regexp.escape(needle)))
-          return unless offset
-          offset += haystack.begin_pos
-          Parser::Source::Range.new(haystack.source_buffer, offset,
-                                    offset + needle.size)
+          range
         end
 
         def trailing_range?(ranges, range)
@@ -206,9 +180,7 @@ module RuboCop
         end
 
         def describe(cop)
-          if cop == 'all'
-            'all cops'
-          elsif all_cop_names.include?(cop)
+          if all_cop_names.include?(cop)
             "`#{cop}`"
           else
             similar = find_similar_name(cop, [])

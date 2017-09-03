@@ -11,7 +11,9 @@ describe RuboCop::Cop::Lint::UnneededDisable do
     let(:processed_source) do
       RuboCop::ProcessedSource.new(source, ruby_version)
     end
-    let(:comments) { processed_source.comments }
+    let(:comment_config) do
+      RuboCop::CommentConfig.new(processed_source)
+    end
     let(:corrected_source) do
       RuboCop::Cop::Corrector
         .new(processed_source.buffer, cop.corrections)
@@ -19,12 +21,11 @@ describe RuboCop::Cop::Lint::UnneededDisable do
     end
 
     before do
-      cop.check(offenses, cop_disabled_line_ranges, comments)
+      cop.check(offenses, comment_config)
     end
 
     context 'when there are no disabled lines' do
       let(:offenses) { [] }
-      let(:cop_disabled_line_ranges) { {} }
       let(:source) { '' }
 
       it 'returns an empty array' do
@@ -39,9 +40,6 @@ describe RuboCop::Cop::Lint::UnneededDisable do
         context 'and a comment disables' do
           context 'one cop' do
             let(:source) { "# rubocop:disable Metrics/MethodLength\n" }
-            let(:cop_disabled_line_ranges) do
-              { 'Metrics/MethodLength' => [1..Float::INFINITY] }
-            end
 
             it 'returns an offense' do
               expect(cop.messages)
@@ -61,9 +59,6 @@ describe RuboCop::Cop::Lint::UnneededDisable do
 
           context 'an unknown cop' do
             let(:source) { '# rubocop:disable UnknownCop' }
-            let(:cop_disabled_line_ranges) do
-              { 'UnknownCop' => [1..Float::INFINITY] }
-            end
 
             it 'returns an offense' do
               expect(cop.messages)
@@ -79,9 +74,6 @@ describe RuboCop::Cop::Lint::UnneededDisable do
 
           context 'itself' do
             let(:source) { '# rubocop:disable Lint/UnneededDisable' }
-            let(:cop_disabled_line_ranges) do
-              { 'Lint/UnneededDisable' => [1..Float::INFINITY] }
-            end
 
             it 'does not return an offense' do
               expect(cop.offenses).to be_empty
@@ -94,59 +86,33 @@ describe RuboCop::Cop::Lint::UnneededDisable do
                 '# rubocop:disable Lint/UnneededDisable, Metrics/ClassLength'
               end
 
-              let(:cop_disabled_line_ranges) do
-                { 'Lint/UnneededDisable' => [1..Float::INFINITY],
-                  'Metrics/ClassLength' => [1..Float::INFINITY] }
-              end
-
               it 'does not return an offense' do
                 expect(cop.offenses).to be_empty
               end
             end
 
             context 'with itself disabled only around opening directive' do
-              let(:source) { <<-END.strip_indent }
+              let(:source) { <<-SOURCE.strip_indent }
                 # rubocop:disable Lint/UnneededDisable
                 # rubocop:disable Test/Something
                 # rubocop:enable Lint/UnneededDisable
                 no_offense_to_test_slash_something
                 # rubocop:enable Test/Something
-              END
+              SOURCE
 
-              let(:cop_disabled_line_ranges) do
-                { 'Lint/UnneededDisable' => [1..3],
-                  'Test/Something' => [2..5] }
-              end
-
-              it 'returns an offense' do
-                # Due to implementation difference between [1] vs [2]/[3],
-                # Lint/UnneededDisable must be disabled over an entire range in
-                # order to suppress offenses on the beginning directive.
-                #
-                # [1]: Lint::UnneededDisable#ignore_offense?
-                # [2]: Cop::Cop#enabled_line?
-                # [3]: CommentConfig#cop_enabled_at_line?
-
-                expect(cop.messages)
-                  .to eq(['Unnecessary disabling of `Test/Something` (unknown cop).'])
-                expect(cop.highlights)
-                  .to eq(['# rubocop:disable Test/Something'])
+              it 'does not return an offense' do
+                expect(cop.offenses).to be_empty
               end
             end
 
             context 'with itself disabled around whole range' do
-              let(:source) { <<-END.strip_indent }
+              let(:source) { <<-SOURCE.strip_indent }
                 # rubocop:disable Lint/UnneededDisable
                 # rubocop:disable Test/Something
                 no_offense_to_test_slash_something
                 # rubocop:enable Test/Something
                 # rubocop:enable Lint/UnneededDisable
-              END
-
-              let(:cop_disabled_line_ranges) do
-                { 'Lint/UnneededDisable' => [1..5],
-                  'Test/Something' => [2..4] }
-              end
+              SOURCE
 
               it 'does not return an offense' do
                 expect(cop.offenses).to be_empty
@@ -157,10 +123,6 @@ describe RuboCop::Cop::Lint::UnneededDisable do
           context 'multiple cops' do
             let(:source) do
               '# rubocop:disable Metrics/MethodLength, Metrics/ClassLength'
-            end
-            let(:cop_disabled_line_ranges) do
-              { 'Metrics/ClassLength' => [1..Float::INFINITY],
-                'Metrics/MethodLength' => [1..Float::INFINITY] }
             end
 
             it 'returns an offense' do
@@ -178,12 +140,6 @@ describe RuboCop::Cop::Lint::UnneededDisable do
             let(:source) do
               '# rubocop:disable Metrics/MethodLength, Metrics/ClassLength, ' \
               'Lint/Debugger, Lint/AmbiguousOperator'
-            end
-            let(:cop_disabled_line_ranges) do
-              { 'Metrics/ClassLength' => [1..Float::INFINITY],
-                'Metrics/MethodLength' => [1..Float::INFINITY],
-                'Lint/Debugger' => [1..Float::INFINITY],
-                'Lint/AmbiguousOperator' => [1..Float::INFINITY] }
             end
             let(:offenses) do
               [
@@ -215,10 +171,6 @@ describe RuboCop::Cop::Lint::UnneededDisable do
             let(:source) do
               '# rubocop:disable Metrics/ClassLength, Metrics/MethodLength'
             end
-            let(:cop_disabled_line_ranges) do
-              { 'Metrics/ClassLength' => [1..Float::INFINITY],
-                'Metrics/MethodLength' => [1..Float::INFINITY] }
-            end
             let(:offenses) do
               [
                 RuboCop::Cop::Offense.new(:convention,
@@ -245,11 +197,6 @@ describe RuboCop::Cop::Lint::UnneededDisable do
             context 'one of them has offenses' do
               let(:source) do
                 '# rubocop:disable MethodLength, ClassLength, Debugger'
-              end
-              let(:cop_disabled_line_ranges) do
-                { 'Metrics/ClassLength' => [1..Float::INFINITY],
-                  'Metrics/MethodLength' => [1..Float::INFINITY],
-                  'Lint/Debugger' => [1..Float::INFINITY] }
               end
               let(:offenses) do
                 [
@@ -280,10 +227,6 @@ describe RuboCop::Cop::Lint::UnneededDisable do
               let(:source) do
                 ['puts 1',
                  '# rubocop:disable MethodLength, ClassLength'].join("\n")
-              end
-              let(:cop_disabled_line_ranges) do
-                { 'Metrics/ClassLength' => [2..Float::INFINITY],
-                  'Metrics/MethodLength' => [2..Float::INFINITY] }
               end
               let(:offenses) do
                 [
@@ -317,9 +260,6 @@ describe RuboCop::Cop::Lint::UnneededDisable do
                  '# comment to keep # rubocop:disable LineLength',
                  'something_else'].join("\n")
               end
-              let(:cop_disabled_line_ranges) do
-                { 'Metrics/LineLength' => [2..Float::INFINITY] }
-              end
               let(:offenses) { [] }
 
               it 'registers an offense' do
@@ -328,11 +268,11 @@ describe RuboCop::Cop::Lint::UnneededDisable do
                 )
               end
 
-              pending 'highlights just the directive' do
+              it 'highlights just the directive' do
                 expect(cop.highlights).to eq(['# rubocop:disable LineLength'])
               end
 
-              pending 'autocorrects to remove only the directive' do
+              it 'autocorrects to remove only the directive' do
                 expect(corrected_source).to eq(
                   ['puts 1',
                    '# comment to keep',
@@ -346,10 +286,6 @@ describe RuboCop::Cop::Lint::UnneededDisable do
             let(:source) do
               '# rubocop:disable Metrics/MethodLenght, KlassLength'
             end
-            let(:cop_disabled_line_ranges) do
-              { 'KlassLength' => [1..Float::INFINITY],
-                'Metrics/MethodLenght' => [1..Float::INFINITY] }
-            end
 
             it 'returns an offense' do
               expect(cop.messages)
@@ -361,14 +297,6 @@ describe RuboCop::Cop::Lint::UnneededDisable do
 
           context 'all cops' do
             let(:source) { '# rubocop : disable all' }
-            let(:cop_disabled_line_ranges) do
-              {
-                'Metrics/MethodLength' => [1..Float::INFINITY],
-                'Metrics/ClassLength' => [1..Float::INFINITY],
-                'Lint/UnneededDisable' => [1..Float::INFINITY]
-                # etc... (no need to include all cops here)
-              }
-            end
 
             it 'returns an offense' do
               expect(cop.messages).to eq(['Unnecessary disabling of all cops.'])
@@ -383,16 +311,8 @@ describe RuboCop::Cop::Lint::UnneededDisable do
                '# rubocop:disable all',
                'puts 2'].join("\n")
             end
-            let(:cop_disabled_line_ranges) do
-              {
-                'Metrics/MethodLength' => [1..3, 3..Float::INFINITY],
-                'Metrics/ClassLength' => [1..3, 3..Float::INFINITY],
-                'Lint/UnneededDisable' => [1..3, 3..Float::INFINITY]
-                # etc... (no need to include all cops here)
-              }
-            end
 
-            pending 'returns two offenses' do
+            it 'returns two offenses' do
               expect(cop.offenses.count).to eq(2)
               expect(cop.offenses.map(&:location).map(&:line)).to eq([1, 3])
               expect(cop.messages)
@@ -431,9 +351,6 @@ describe RuboCop::Cop::Lint::UnneededDisable do
                'end'].join("\n")
             end
             let(:offense_lines) { [3, 8] }
-            let(:cop_disabled_line_ranges) do
-              { 'Style/ClassVars' => [2..7, 7..9] }
-            end
 
             it 'returns an offense' do
               expect(cop.messages)
@@ -452,9 +369,6 @@ describe RuboCop::Cop::Lint::UnneededDisable do
                'end'].join("\n")
             end
             let(:offense_lines) { [4] }
-            let(:cop_disabled_line_ranges) do
-              { 'Style/ClassVars' => [2..3, 3..Float::INFINITY] }
-            end
 
             it 'returns an offense' do
               expect(cop.messages)
@@ -472,15 +386,8 @@ describe RuboCop::Cop::Lint::UnneededDisable do
                'puts 2'].join("\n")
             end
             let(:offense_lines) { [2, 4] }
-            let(:cop_disabled_line_ranges) do
-              {
-                'Style/ClassVars' => [1..3, 3..Float::INFINITY],
-                'Lint/UnneededDisable' => [1..3, 3..Float::INFINITY]
-                # etc... (no need to include all cops here)
-              }
-            end
 
-            pending 'returns one offense' do
+            it 'returns one offense' do
               expect(cop.offenses.count).to eq(1)
               expect(cop.offenses.map(&:location).map(&:line)).to eq([3])
               expect(cop.messages)
@@ -503,7 +410,6 @@ describe RuboCop::Cop::Lint::UnneededDisable do
         context 'and a comment disables' do
           context 'that cop' do
             let(:source) { '# rubocop:disable Layout/Tab' }
-            let(:cop_disabled_line_ranges) { { 'Layout/Tab' => [1..100] } }
 
             it 'returns an empty array' do
               expect(cop.offenses).to be_empty
@@ -512,7 +418,6 @@ describe RuboCop::Cop::Lint::UnneededDisable do
 
           context 'that cop but on other lines' do
             let(:source) { ("\n" * 9) << '# rubocop:disable Layout/Tab' }
-            let(:cop_disabled_line_ranges) { { 'Layout/Tab' => [10..12] } }
 
             it 'returns an offense' do
               expect(cop.messages)
@@ -523,13 +428,6 @@ describe RuboCop::Cop::Lint::UnneededDisable do
 
           context 'all cops' do
             let(:source) { '# rubocop : disable all' }
-            let(:cop_disabled_line_ranges) do
-              {
-                'Metrics/MethodLength' => [1..Float::INFINITY],
-                'Metrics/ClassLength' => [1..Float::INFINITY]
-                # etc... (no need to include all cops here)
-              }
-            end
 
             it 'returns an empty array' do
               expect(cop.offenses).to be_empty
@@ -543,16 +441,8 @@ describe RuboCop::Cop::Lint::UnneededDisable do
                '# rubocop:disable all',
                'puts 2'].join("\n")
             end
-            let(:cop_disabled_line_ranges) do
-              {
-                'Metrics/MethodLength' => [1..3, 3..Float::INFINITY],
-                'Metrics/ClassLength' => [1..3, 3..Float::INFINITY],
-                'Lint/UnneededDisable' => [1..3, 3..Float::INFINITY]
-                # etc... (no need to include all cops here)
-              }
-            end
 
-            pending 'returns one offense' do
+            it 'returns one offense' do
               expect(cop.offenses.count).to eq(1)
               expect(cop.offenses.map(&:location).map(&:line)).to eq([3])
               expect(cop.messages)

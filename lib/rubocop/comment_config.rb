@@ -31,28 +31,34 @@ module RuboCop
 
     def compute_cop_disabled_ranges
       # cop_name => [ranges]
-      @cop_disabled_line_ranges = Hash.new { |h, k| h[k] = Array.new }
+      @cop_disabled_line_ranges = Hash.new { |h, k| h[k] = [] }
 
-      # cop_name => disable_directive
-      @cops_currently_disabled = Hash.new
+      # cop_name => [disable_directives]
+      @cops_currently_disabled = Hash.new { |h, k| h[k] = [] }
 
       directives.each do |directive|
-        case [directive_scope(directive), directive.keyword]
-        when [:single_line, :disable]
-          handle_single_line_disable(directive)
-        when [:single_line, :enable]
-          handle_single_line_enable(directive)
-        when [:multi_line, :disable]
-          handle_multi_line_disable(directive)
-        when [:multi_line, :enable]
-          handle_multi_line_enable(directive)
-        else
-          raise 'Unrecognized directive scope/keyword combo'
-        end
+        handle_directive(directive)
       end
 
-      @cops_currently_disabled.each do |cop_name, disable_directive|
-        add_disabled_range(cop_name, disable_directive)
+      @cops_currently_disabled.each do |cop_name, disable_directives|
+        disable_directives.each do |disable_directive|
+          add_disabled_range(cop_name, disable_directive)
+        end
+      end
+    end
+
+    def handle_directive(directive)
+      case [directive_scope(directive), directive.keyword]
+      when %i[single_line disable]
+        handle_single_line_disable(directive)
+      when %i[single_line enable]
+        handle_single_line_enable(directive)
+      when %i[multi_line disable]
+        handle_multi_line_disable(directive)
+      when %i[multi_line enable]
+        handle_multi_line_enable(directive)
+      else
+        raise 'Unrecognized directive scope/keyword combo'
       end
     end
 
@@ -75,30 +81,22 @@ module RuboCop
     end
 
     def handle_multi_line_disable(directive)
-      # Handle any cops already disabled on this line, ending the current
-      # disabled ranges before starting new ranges.
-      handle_multi_line_enable(directive)
-
       directive.cop_names.each do |cop_name|
-        @cops_currently_disabled[cop_name] = directive
+        @cops_currently_disabled[cop_name] <<= directive
       end
     end
 
     def handle_multi_line_enable(directive)
-      disabled_cops_in(directive).each do |cop_name|
-        begin_directive = @cops_currently_disabled.delete(cop_name)
-        add_disabled_range(cop_name, begin_directive, directive)
+      directive.cop_names.each do |cop_name|
+        directives_to_close = @cops_currently_disabled.delete(cop_name) || []
+        directives_to_close.each do |begin_directive|
+          add_disabled_range(cop_name, begin_directive, directive)
+        end
       end
     end
 
-    def disabled_cops_in(directive)
-      directive.cop_names & @cops_currently_disabled.keys
-    end
-
     def add_disabled_range(cop_name, begin_directive, end_directive = nil)
-      begin = begin_directive.line
-      end = end_directive ? end_directive.line : Float::INFINITY
-      range = begin..end
+      range = CommentConfigRange.new(cop_name, begin_directive, end_directive)
       @cop_disabled_line_ranges[cop_name] <<= range
     end
 
