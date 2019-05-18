@@ -11,7 +11,7 @@ module RuboCop
     COPS_PATTERN = "(all|#{COP_NAMES_PATTERN})"
 
     COMMENT_DIRECTIVE_REGEXP = Regexp.new(
-      ('# rubocop : ((?:dis|en)able)\b ' + COPS_PATTERN).gsub(' ', '\s*')
+      ('# rubocop : ((?:(?:temp_)?dis|en)able)\b ' + COPS_PATTERN).gsub(' ', '\s*')
     )
 
     CopAnalysis = Struct.new(:line_ranges, :start_line_number)
@@ -125,23 +125,19 @@ module RuboCop
       return if processed_source.comments.nil?
 
       processed_source.each_comment do |comment|
-        directive = directive_parts(comment)
-        next unless directive
-
-        yield comment, *directive
+        comment.text.scan(COMMENT_DIRECTIVE_REGEXP) do |match_captures|
+          yield comment, *directive_parts(match_captures)
+        end
       end
     end
 
-    def directive_parts(comment)
-      match = comment.text.match(COMMENT_DIRECTIVE_REGEXP)
-      return unless match
-
-      switch, cops_string = match.captures
+    def directive_parts(match_captures)
+      switch, cops_string = match_captures
 
       cop_names =
         cops_string == 'all' ? all_cop_names : cops_string.split(/,\s*/)
 
-      disabled = (switch == 'disable')
+      disabled = switch.end_with? 'disable'
 
       [cop_names, disabled]
     end
